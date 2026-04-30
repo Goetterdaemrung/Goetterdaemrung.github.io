@@ -1,0 +1,18 @@
+# NeuroWard — GitHub Pages configuration
+# This tells Jekyll NOT to process the HTML file as a Liquid template,
+# which prevents errors from JavaScript template literals like ${ } and {{ }}
+
+exclude:
+  - "*.html"        # Don't process HTML files as Liquid templates
+
+# Alternatively, if you want Jekyll to serve the HTML:
+# Use the line below instead of exclude, and Jekyll will pass the file through raw
+# without interpreting {{ }} as Liquid tags
+
+# If you're just hosting the file directly (no Jekyll at all), create a file
+# called .nojekyll in your repo root — that's the simplest fix:
+#   touch .nojekyll
+#   git add .nojekyll && git commit -m "disable jekyll"
+
+# For GitHub Pages with jekyll-theme-primer (your current setup):
+# The fastest fix is the .nojekyll file. See below.
