@@ -1,4 +1,3 @@
-# Goetterdaemrung.github.io
 <!DOCTYPE html>
 
 <html lang="en">
@@ -173,6 +172,8 @@ select option{background:var(--surface2)}
     <label class="btn btng btnsm" style="cursor:pointer">⬆ Import<input type="file" accept=".json" onchange="importData(this)" style="display:none"></label>
     <button class="btn btng btnsm" onclick="printPt()">🖨 Print Patient</button>
     <button class="btn btng btnsm" onclick="openPrintAll()">🖨 Print All</button>
+    <button class="btn btng btnsm" onclick="exportMedFil48()">📄 Med-Fil-48 DOCX</button>
+    <button class="btn btng btnsm" onclick="exportFullDischarge()">📋 Full Discharge DOCX</button>
     <div class="daybadge" id="daybadge"></div>
   </div>
 </div>
@@ -393,6 +394,23 @@ select option{background:var(--surface2)}
   </div>
 </div>
 
+<!-- ATTACHMENTS MODAL -->
+
+<div id="attmod" class="mov" style="display:none">
+  <div class="mobox wide">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <h3>📎 Patient Attachments</h3>
+      <button class="rmbtn" onclick="closeM('attmod')" style="font-size:18px">✕</button>
+    </div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:14px">Attach images, PDFs, reports, or any documents. Files are stored in your browser (localStorage) — export/import to back them up.</div>
+    <label class="btn btnp btnsm" style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;margin-bottom:16px">
+      ➕ Add File(s)
+      <input type="file" id="att-file-input" multiple accept="image/*,.pdf,.doc,.docx,.txt" onchange="handleAttachFiles(this)" style="display:none">
+    </label>
+    <div id="att-list"></div>
+  </div>
+</div>
+
 <script>
 // ── PERMANENT STORAGE KEY ─────────────────────────────────────────────────────
 // This key never changes between versions — your data is always preserved
@@ -561,7 +579,8 @@ function getAlerts(p){
   });
   (p.consultations||[]).filter(c=>!c.responded).forEach(c=>A.push({lv:'y',msg:c.specialty+' — awaiting response',anc:'consults'}));
   const invA=(list,anc)=>list.forEach(l=>{
-    if(l.status==='ordered'||l.status==='pending'){const s=l.orderedDate?' · ordered '+fmtD(l.orderedDate):'';A.push({lv:'y',msg:l.name+' — '+ST_LBL[l.status]+s,anc})}
+    if(l.status==='ordered')A.push({lv:'y',msg:l.name+' — Ordered',anc});
+    else if(l.status==='pending'){const s=l.orderedDate?' · ordered '+fmtD(l.orderedDate):'';A.push({lv:'y',msg:l.name+' — Pending'+s,anc})}
     if(l.status==='done-pending-result'){const s=l.doneDate?' · done '+fmtD(l.doneDate):'';A.push({lv:'t',msg:l.name+' — awaiting report'+s,anc})}
   });
   invA([...(p.specificLabs||[]),...(p.otherLabs||[])],'investigations');
@@ -671,6 +690,7 @@ function renderPt(){
       <div class="btn-row" style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
         <button class="btn btng btnsm" onclick="editInfo()">✏️ Edit Info</button>
         <button class="btn btng btnsm" onclick="openScan()">📷 Scan</button>
+        <button class="btn btng btnsm" onclick="openAttachments()">📎 Attachments</button>
         <button class="btn btngrn btnsm" onclick="genAISummary()">🤖 AI Summary</button>
         <button class="btn btnd btnsm" onclick="delPt()">🗑 Remove</button>
       </div>
@@ -732,7 +752,7 @@ const g=tpl?`<div class="guide-box guide-exam" onclick="this.querySelector('.gc'
 
 // ── INVESTIGATIONS ────────────────────────────────────────────────────────────
 function iRow(inv,i,lt){
-const st=inv.status,showR=st===‘done-pending-result’||st===‘resulted’||inv.result,showD=st!==‘not-ordered’;
+const st=inv.status,showR=st===‘done-pending-result’||st===‘resulted’||inv.result,showD=st===‘pending’||st===‘done-pending-result’||st===‘resulted’;
 return`<div class="irow st-${st}" id="ir-${inv.id}"> <div style="display:flex;gap:5px;align-items:center;justify-content:space-between"> <input class="iname" value="${esc(inv.name)}" onchange="updInv('${lt}','${inv.id}','name',this.value)" title="Rename"> <div style="display:flex;gap:3px;align-items:center;flex-shrink:0"> ${i>0?`<button class="mvbtn" onclick="movInv('${lt}','${inv.id}',-1)">↑</button>`:''} <button class="mvbtn" onclick="movInv('${lt}','${inv.id}',1)">↓</button> <button class="sbdg bd-${st}" onclick="cycSt('${lt}','${inv.id}')">${ST_LBL[st]}</button> <button class="rmbtn" onclick="rmInv('${lt}','${inv.id}')">✕</button> </div> </div> ${showD?`<div style="display:flex;gap:8px;margin-top:4px;flex-wrap:wrap">
 <div style="display:flex;align-items:center;gap:4px;font-size:10px;color:var(--text3)">Ordered:<input type="date" value="${esc(inv.orderedDate)}" onchange="updInv('${lt}','${inv.id}','orderedDate',this.value)" style="font-size:11px;padding:2px 5px;width:128px"></div>
 ${st===‘done-pending-result’||st===‘resulted’?`<div style="display:flex;align-items:center;gap:4px;font-size:10px;color:var(--text3)">Done:<input type="date" value="${esc(inv.doneDate)}" onchange="updInv('${lt}','${inv.id}','doneDate',this.value)" style="font-size:11px;padding:2px 5px;width:128px"></div>`:’’}
@@ -940,10 +960,9 @@ function cycSt(lt,id){
 upd(p=>{
 let arr;
 if(lt===‘ophth_oct’)arr=[p.ophthalmology.oct];
-else if(lt===‘ophth_perimetry’)arr=[p.ophthalmology.perimetry]
+else if(lt===‘ophth_perimetry’)arr=[p.ophthalmology.perimetry];
 else arr=p[lt]||[];
 const item=arr.find(x=>x.id===id);if(!item)return;
-
 const idx=ST_CYC.indexOf(item.status);item.status=ST_CYC[(idx+1)%ST_CYC.length];
 });renderPt();renderList();
 }
@@ -1383,7 +1402,7 @@ if(tx.type===‘PLEX’&&tx.startDate)return’PLEX — ’+plexInfo(tx);
 return null;
 }).filter(Boolean);
 const pending=[…(p.specificLabs||[]),…(p.otherLabs||[]),…(p.imaging||[]),…(p.npStudies||[])].filter(l=>l.status===‘ordered’||l.status===‘pending’||l.status===‘done-pending-result’);
-html+=`<div class="ptblock"> <div class="ptname">${p.name||'Unnamed'}${p.nameAr?' · '+p.nameAr:''} <span style="font-weight:400;font-size:11px;color:#555">· ${p.age}y ${p.sex} · ${admDay(p.doa)}</span></div> <div class="ptmeta">${p.diagnosis||'No diagnosis'}${p.referringStaff?' · Ref: '+p.referringStaff:''}</div> <div class="cols"> <div> <div class="col-title">Alerts & Tasks</div> ${alerts.length?alerts.map(a=>`<div class="a${a.lv}" style="font-size:11px;margin-bottom:2px">• ${a.msg}</div>`).join(''):'<div class="ok">✓ Clear</div>'} </div> <div> <div class="col-title">Active Treatment</div> ${activeTx.length?activeTx.map(t=>`<div style="font-size:11px">• ${t}</div>`).join(''):'<div style="color:#555;font-size:11px">—</div>'} ${abnLabs.length?'<div style="margin-top:6px"><div class="col-title" style="color:#c00">Abnormal Labs</div>'+abnLabs.map(l=>`<div class="ar" style="font-size:11px">• ${l}</div>`).join('')+'</div>':''} </div> <div> <div class="col-title">Pending (${pending.length})</div> ${pending.slice(0,6).map(l=>`<div style="font-size:11px">• ${l.name} — ${ST_LBL[l.status]}</div>`).join('')||'<div style="color:#555;font-size:11px">—</div>'} ${pending.length>6?`<div style="color:#555;font-size:10px">+${pending.length-6} more</div>`:''} </div> </div> </div>`;
+html+=`<div class="ptblock"> <div class="ptname">${p.name||'Unnamed'}${p.nameAr?' · '+p.nameAr:''} <span style="font-weight:400;font-size:11px;color:#555">· ${p.age}y ${p.sex} · ${admDay(p.doa)}</span></div> <div class="ptmeta">${p.diagnosis||'No diagnosis'}${p.referringStaff?' · Ref: '+p.referringStaff:''}</div> <div class="cols"> <div> <div class="col-title">Alerts & Tasks</div> ${alerts.length?alerts.map(a=>`<div class="a${a.lv}" style="font-size:11px;margin-bottom:2px">• ${a.msg}</div>`).join(''):'<div class="ok">✓ Clear</div>'} </div> <div> <div class="col-title">Active Treatment</div> ${activeTx.length?activeTx.map(t=>`<div style="font-size:11px">• ${t}</div>`).join(''):'<div style="color:#555;font-size:11px">—</div>'} ${abnLabs.length?'<div style="margin-top:6px"><div class="col-title" style="color:#c00">Abnormal Labs</div>'+abnLabs.map(l=>`<div class="ar" style="font-size:11px">• ${l}</div>`).join('')+'</div>':''} </div> <div> <div class="col-title">Pending (${pending.length})</div> ${pending.map(l=>`<div style="font-size:11px">• ${l.name} — ${ST_LBL[l.status]}</div>`).join('')||'<div style="color:#555;font-size:11px">—</div>'} </div> </div> </div>`;
 });
 html+=`</body></html>`;
 w.document.write(html);w.document.close();
@@ -1397,6 +1416,7 @@ p.collapsedSections=p.collapsedSections||{};
 p.otherLabs=p.otherLabs||[];
 p.concurrentMeds=p.concurrentMeds||[];
 p.vitals=p.vitals||[];
+p.attachments=p.attachments||[];
 p.exam=p.exam||{};p.exam.cognition=p.exam.cognition||’’;
 if(!p.ophthalmology)p.ophthalmology={va_r:’’,va_l:’’,oct:mkInv(‘OCT’),perimetry:mkInv(‘Perimetry’),notes:’’,fundusEntries:[]};
 if(!p.ophthalmology.oct?.id)p.ophthalmology.oct=mkInv(‘OCT’);
@@ -1424,6 +1444,310 @@ document.getElementById(‘daybadge’).textContent=new Date().toLocaleDateStrin
 loadD();
 migrate();
 renderList();
+
+// ── ATTACHMENTS ───────────────────────────────────────────────────────────────
+function openAttachments(){
+const p=getP();if(!p)return;
+p.attachments=p.attachments||[];
+renderAttList(p);
+openM(‘attmod’);
+}
+
+function renderAttList(p){
+const list=p.attachments||[];
+const el=document.getElementById(‘att-list’);
+if(!list.length){el.innerHTML=’<div style="color:var(--text3);font-size:13px">No attachments yet.</div>’;return;}
+el.innerHTML=list.map((a,i)=>` <div style="display:flex;align-items:center;gap:10px;background:var(--surface2);border:1px solid var(--border2);border-radius:8px;padding:10px;margin-bottom:8px"> <div style="font-size:28px;flex-shrink:0">${attIcon(a.type)}</div> <div style="flex:1;min-width:0"> <div style="font-weight:600;font-size:13px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(a.name)}</div> <div style="font-size:11px;color:var(--text3)">${fmtD(a.date)} · ${attSize(a.data)}</div> </div> <div style="display:flex;gap:6px;flex-shrink:0"> ${a.type.startsWith('image/')?`<button class="btn btng btnsm" onclick="previewAtt(${i})">👁 View</button>`:''} <button class="btn btng btnsm" onclick="downloadAtt(${i})">⬇ Save</button> <button class="rmbtn" onclick="rmAtt(${i})">✕</button> </div> </div>`).join(’’);
+}
+
+function attIcon(type){
+if(type.startsWith(‘image/’))return’🖼’;
+if(type===‘application/pdf’)return’📄’;
+if(type.includes(‘word’))return’📝’;
+return’📎’;
+}
+function attSize(b64){const bytes=Math.round((b64.length*3)/4);return bytes>1048576?(bytes/1048576).toFixed(1)+‘MB’:Math.round(bytes/1024)+‘KB’;}
+
+function handleAttachFiles(input){
+const p=getP();if(!p)return;
+p.attachments=p.attachments||[];
+const files=Array.from(input.files);
+let done=0;
+files.forEach(f=>{
+const reader=new FileReader();
+reader.onload=ev=>{
+p.attachments.push({id:uid(),name:f.name,type:f.type||‘application/octet-stream’,date:td(),data:ev.target.result.split(’,’)[1]});
+done++;
+if(done===files.length){saveD();renderAttList(p);}
+};
+reader.readAsDataURL(f);
+});
+input.value=’’;
+}
+
+function previewAtt(i){
+const p=getP();if(!p)return;
+const a=p.attachments[i];
+const w=window.open(’’,’_blank’);
+w.document.write(`<html><body style="margin:0;background:#000;display:flex;align-items:center;justify-content:center;min-height:100vh"><img src="data:${a.type};base64,${a.data}" style="max-width:100%;max-height:100vh;object-fit:contain"></body></html>`);
+w.document.close();
+}
+
+function downloadAtt(i){
+const p=getP();if(!p)return;
+const a=p.attachments[i];
+const link=document.createElement(‘a’);
+link.href=`data:${a.type};base64,${a.data}`;
+link.download=a.name;
+link.click();
+}
+
+function rmAtt(i){
+const p=getP();if(!p)return;
+if(!confirm(‘Remove this attachment?’))return;
+p.attachments.splice(i,1);
+saveD();renderAttList(p);
+}
+
+// ── DOCX GENERATION via Anthropic API ────────────────────────────────────────
+// These generate DOCX on-the-fly using the API to write and run Node.js code
+
+async function exportMedFil48(){
+const p=getP();
+if(!p){alert(‘Select a patient first’);return;}
+if(isFileProto()){alert(‘DOCX export requires internet connection. Open via http:// (not file://).’);return;}
+
+// Gather all lab data
+const latestLabs=(p.routineLabs||[]).slice(-1)[0];
+const labVals=latestLabs?.values||{};
+const admLabs=(p.routineLabs||[]).sort((a,b)=>a.date.localeCompare(b.date))[0]?.values||{};
+
+const activeTx=(p.treatments||[]).map(tx=>{
+if(tx.type===‘IVMP’)return`IVMP ${tx.startDate?'from '+tx.startDate:''} (${tx.daysTotal||5} days)`;
+if(tx.type===‘IVIG’)return`IVIG ${tx.dose||''} ${tx.startDate?'from '+tx.startDate:''} (${tx.daysTotal||5} days)`;
+if(tx.type===‘PLEX’)return`PLEX ${tx.sessionsTotal||5} sessions ${tx.frequency||'every 2 days'}`;
+return tx.type;
+}).join(’; ’);
+
+const meds=(p.concurrentMeds||[]).filter(m=>m.status===‘active’).map(m=>`${m.name}${m.dose?' '+m.dose:''}`).join(’, ‘);
+const abs=(p.antibiotics||[]).map(ab=>ab.drug+(ab.indication?’ (’+ab.indication+’)’:’’)).join(’, ‘);
+const allMeds=[activeTx,meds,abs].filter(Boolean).join(’ | ’);
+
+const patientData={
+name:p.name||’’,nameAr:p.nameAr||’’,age:p.age||’’,sex:p.sex||’’,
+hospitalNumber:’’,telephone:’’,sitsNo:’’,
+dateAdmission:p.doa||’’,dateDischarge:p.dos||’’,
+diagnosis:p.diagnosis||’’,
+clinicalOnAdmission:p.complaint+(p.hpi?’\n’+p.hpi:’’),
+clinicalDischarge:`Exam: General ${p.exam?.general||'—'} | Power RUL${p.exam?.RUL||'?'} LUL${p.exam?.LUL||'?'} RLL${p.exam?.RLL||'?'} LLL${p.exam?.LLL||'?'} | Reflexes ${p.exam?.reflexesDeep||'—'} | Coordination ${p.exam?.coordination||'—'} | Gait ${p.exam?.gait||'—'}`,
+hospitalCourse:(p.hospitalCourse||[]).sort((a,b)=>a.date.localeCompare(b.date)).map(e=>e.date+’: ‘+e.text).join(’\n’)||’’,
+// Lab values: admission, 72hrs (approx 3 days), discharge (latest)
+labHb_adm:admLabs.Hb||’’,labHb_dis:labVals.Hb||’’,
+labTLC_adm:admLabs.WBC||’’,labTLC_dis:labVals.WBC||’’,
+labPLT_adm:admLabs.PLT||’’,labPLT_dis:labVals.PLT||’’,
+labCRP_adm:admLabs.CRP||’’,labCRP_dis:labVals.CRP||’’,
+labINR_adm:admLabs.INR||’’,labINR_dis:labVals.INR||’’,
+labCreat_adm:admLabs.Creatinine||’’,labCreat_dis:labVals.Creatinine||’’,
+labUrea_adm:admLabs.Urea||’’,labUrea_dis:labVals.Urea||’’,
+labALT_adm:admLabs.ALT||’’,labALT_dis:labVals.ALT||’’,
+labAST_adm:admLabs.AST||’’,labAST_dis:labVals.AST||’’,
+labAlb_adm:admLabs.Albumin||’’,labAlb_dis:labVals.Albumin||’’,
+labBil_adm:admLabs.Bilirubin||’’,labBil_dis:labVals.Bilirubin||’’,
+labNa_adm:admLabs.Na||’’,labNa_dis:labVals.Na||’’,
+labK_adm:admLabs.K||’’,labK_dis:labVals.K||’’,
+labCa_adm:admLabs.Ca||’’,labCa_dis:labVals.Ca||’’,
+labMg_adm:admLabs.Mg||’’,labMg_dis:labVals.Mg||’’,
+medications:allMeds,
+nihssAdm:’’,nihss72:’’,nihssDis:’’,mrsAdm:’’,mrs72:’’,mrsDis:’’
+};
+
+await generateDocxViaAPI(‘medfil48’, patientData, `MedFil48_${(p.name||'patient').replace(/\s+/g,'_')}_${td()}.docx`);
+}
+
+async function exportFullDischarge(){
+const p=getP();
+if(!p){alert(‘Select a patient first’);return;}
+if(isFileProto()){alert(‘DOCX export requires internet connection. Open via http:// (not file://).’);return;}
+await generateDocxViaAPI(‘fullDischarge’, p, `Discharge_${(p.name||'patient').replace(/\s+/g,'_')}_${td()}.docx`);
+}
+
+async function generateDocxViaAPI(template, data, filename){
+// Show loading
+const loadDiv=document.createElement(‘div’);
+loadDiv.style.cssText=‘position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;color:#fff;font-size:15px’;
+loadDiv.innerHTML=’<div style="font-size:40px">⏳</div><div>Generating DOCX…</div>’;
+document.body.appendChild(loadDiv);
+
+try{
+const prompt=template===‘medfil48’?buildMedFil48Prompt(data):buildFullDischargePrompt(data);
+const res=await fetch(‘https://api.anthropic.com/v1/messages’,{
+method:‘POST’,
+headers:{‘Content-Type’:‘application/json’},
+body:JSON.stringify({model:‘claude-sonnet-4-20250514’,max_tokens:4000,messages:[{role:‘user’,content:prompt}]})
+});
+const result=await res.json();
+const jsCode=result.content?.find(b=>b.type===‘text’)?.text||’’;
+
+```
+// Extract JS code block
+const match=jsCode.match(/```javascript\n([\s\S]+?)\n```/)||jsCode.match(/```js\n([\s\S]+?)\n```/)||[null,jsCode];
+const code=match[1]||jsCode;
+
+// Execute via blob URL approach — inject script that uses CDN docx
+await executeDocxCode(code, filename);
+```
+
+}catch(e){
+alert(’Error generating DOCX: ’+e.message);
+console.error(e);
+}finally{
+document.body.removeChild(loadDiv);
+}
+}
+
+function buildMedFil48Prompt(d){
+return `Generate JavaScript code using the docx npm library (already available as global ‘docx’) to create a Word document replicating the Cairo University / KSCRTU Med-Fil-48 discharge summary form.
+
+The form has these sections:
+
+1. Header: “Discharge Summary” title, hospital name “Cairo University Hospitals / Kasralainy Stroke and Cerebrovascular Diseases Research and Treatment Unit (KSCRTU)”
+1. Arabic header on right side (mirror): مستشفيات جامعة القاهرة / قسم امراض المخ والاعصاب / وحدة أبحاث وعلاج السكتة الدماغية
+1. Patient info box: Name, Age, Hospital Number, Date of Admission, Date of Discharge, Telephone number, SITS no.
+1. Diagnosis box (large)
+1. Personal History section (blank box for editing)
+1. Clinical Data section with “On Admission:” and “Discharge:” sub-boxes
+1. Hospital Course section (large blank box)
+1. Second page: Lab results table with rows: HB, TLC, PLT, CRP, ESR, Procal, INR, Creat, Urea, Uric acid, ALT, AST, Albumin, Bilirubin, Na, K, Ca (T/I), Mg, HBA1c, Cholesterol, Triglycerides, LDL, HDL — 3 columns: Admission, 72hrs, Discharge
+1. Investigations section (blank)
+1. NIHSS and mRS row: Admission, 72hrs, Discharge columns
+1. Plan of Care / Medications (التعليمات) with 6 bullet lines
+
+Pre-fill with this patient data:
+${JSON.stringify(d,null,2)}
+
+The code should:
+
+- Use A4 page size
+- Use proper borders on all boxes
+- Include Arabic text where needed (right-to-left)
+- Pre-fill all available data
+- Leave empty fields as blank lines for manual completion
+- Export the document as base64 and call window._docxDone(base64Data)
+
+Write ONLY the JavaScript code, no explanation. Use this pattern:
+const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, BorderStyle, WidthType, ShadingType, AlignmentType, VerticalAlign } = docx;
+// … build document …
+Packer.toBase64String(doc).then(b64 => window._docxDone(b64));`;
+}
+
+function buildFullDischargePrompt(p){
+const latestLabs=(p.routineLabs||[]).slice(-1)[0];
+const labStr=latestLabs?Object.entries(latestLabs.values||{}).map(([k,v])=>`${k}: ${v}`).join(’, ‘):‘None’;
+const txStr=(p.treatments||[]).map(t=>t.type+(t.startDate?’ from ‘+t.startDate:’’)).join(’, ‘)||‘None’;
+const medStr=(p.concurrentMeds||[]).map(m=>`${m.name} ${m.dose||''} [${m.status}]`).join(’, ‘)||‘None’;
+const abStr=(p.antibiotics||[]).map(ab=>ab.drug+(ab.indication?’ - ‘+ab.indication:’’)).join(’, ‘)||‘None’;
+const invStr=[…(p.specificLabs||[]),…(p.otherLabs||[]),…(p.imaging||[]),…(p.npStudies||[])].filter(l=>l.result||l.status===‘resulted’).map(l=>l.name+’: ‘+(l.result||‘resulted’)).join(’\n’)||‘None’;
+const courseStr=(p.hospitalCourse||[]).sort((a,b)=>a.date.localeCompare(b.date)).map(e=>e.date+’: ‘+e.text).join(’\n’)||‘None’;
+const consStr=(p.consultations||[]).map(c=>c.specialty+(c.responded?’ (Responded: ‘+c.recommendations+’)’:’ (Awaiting)’)).join(’\n’)||‘None’;
+const devStr=(p.devices||[]).map(d=>d.type+’ at ‘+d.site+’ inserted ‘+d.insertionDate).join(’\n’)||‘None’;
+
+return `Generate JavaScript code using the docx npm library (already available as global ‘docx’) to create a comprehensive hospital discharge summary Word document.
+
+Design a clean, professional medical discharge summary with these sections:
+
+1. Header: Hospital name “Kasralainy Stroke & Cerebrovascular Diseases Research and Treatment Unit (KSCRTU) — Cairo University Hospitals” with a blue header bar
+1. Patient Demographics box: Name (EN + AR), Age, Sex, Handedness, Residence, Occupation, Marital Status, DOA, DOS, Admission Day, Diagnosis, DDx, Referring Staff
+1. History: Chief Complaint, HPI, Past Medical History, Personal History, Family History
+1. Neurological Examination: General, Cranial Nerves, Tone, Motor Power (RUL/LUL/RLL/LLL), Reflexes, Sensory, Coordination, Gait, Cognition
+1. Investigations Results (only those with results)
+1. Latest Lab Values
+1. Vital Signs (most recent)
+1. Consultations
+1. Treatment Given: IVMP/IVIG/PLEX details, Antibiotics, Concurrent Medications
+1. Devices & Lines
+1. Hospital Course (chronological)
+1. Discharge Plan / Follow-up
+
+Patient Data:
+Name: ${p.name||’’}  Arabic: ${p.nameAr||’’}
+Age: ${p.age||’’}  Sex: ${p.sex||’’}  Handedness: ${p.handedness||’’}
+Residence: ${p.residence||’’}  Occupation: ${p.occupation||’’}  Marital: ${p.marital||’’}
+DOA: ${p.doa||’’}  DOS: ${p.dos||’’}  Referring: ${p.referringStaff||’’}
+Diagnosis: ${p.diagnosis||’’}  DDx: ${p.ddx||’’}
+
+HISTORY:
+Complaint: ${p.complaint||’’}
+HPI: ${p.hpi||’’}
+Past Medical: ${p.pastHistory||’’}
+Personal: ${p.personalHistory||’’}
+Family: ${p.familyHistory||’’}
+
+EXAMINATION:
+General: ${p.exam?.general||’’}
+CN: ${p.exam?.cn||’’}
+Tone: ${p.exam?.tone||’’}
+Power: RUL=${p.exam?.RUL||’’} LUL=${p.exam?.LUL||’’} RLL=${p.exam?.RLL||’’} LLL=${p.exam?.LLL||’’}
+Reflexes Sup: ${p.exam?.reflexesSup||’’} Deep: ${p.exam?.reflexesDeep||’’} Plantar: ${p.exam?.plantar||’’}
+Sensory Sup: ${p.exam?.sensSup||’’} Deep: ${p.exam?.sensDeep||’’}
+Coordination: ${p.exam?.coordination||’’}
+Gait: ${p.exam?.gait||’’}
+Cognition: ${p.exam?.cognition||’’}
+
+INVESTIGATIONS: ${invStr}
+LATEST LABS (${latestLabs?.date||’’}): ${labStr}
+TREATMENTS: ${txStr}
+CONCURRENT MEDS: ${medStr}
+ANTIBIOTICS: ${abStr}
+CONSULTATIONS: ${consStr}
+DEVICES: ${devStr}
+HOSPITAL COURSE: ${courseStr}
+
+The code should:
+
+- Use A4 page size (11906 x 16838 DXA), 1 inch margins
+- Blue accent color #1e3a5f for headers
+- Professional table formatting for the exam grid
+- Export as base64 and call window._docxDone(base64Data)
+
+Write ONLY the JavaScript code. Use:
+const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, BorderStyle, WidthType, ShadingType, AlignmentType, VerticalAlign, HeadingLevel } = docx;
+// … build document …
+Packer.toBase64String(doc).then(b64 => window._docxDone(b64));`;
+}
+
+async function executeDocxCode(code, filename){
+return new Promise((resolve,reject)=>{
+window._docxDone=(b64)=>{
+const binary=atob(b64);
+const arr=new Uint8Array(binary.length);
+for(let i=0;i<binary.length;i++)arr[i]=binary.charCodeAt(i);
+const blob=new Blob([arr],{type:‘application/vnd.openxmlformats-officedocument.wordprocessingml.document’});
+const a=document.createElement(‘a’);
+a.href=URL.createObjectURL(blob);
+a.download=filename;
+a.click();
+URL.revokeObjectURL(a.href);
+delete window._docxDone;
+resolve();
+};
+
+```
+// Load docx from CDN if not available, then run code
+if(window.docx){
+  try{new Function(code)();} catch(e){reject(e);}
+} else {
+  const script=document.createElement('script');
+  script.src='https://unpkg.com/docx@9.0.3/build/index.js';
+  script.onload=()=>{
+    try{new Function(code)();} catch(e){reject(e);}
+  };
+  script.onerror=()=>reject(new Error('Could not load docx library'));
+  document.head.appendChild(script);
+}
+```
+
+});
+}
 </script>
 
 </body>
